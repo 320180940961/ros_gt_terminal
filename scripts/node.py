@@ -162,7 +162,7 @@ class Naver(Thread):
         # self.log.append(f"Lat {target_pos['lat']} Lng{target_pos['lng']}")
         # self.log.append("*"*10)
         # control_rate = rospy.Rate(10)
-        control_rate = rospy.Rate(1)
+        control_rate = rospy.Rate(5)
 
         # --- 阶段一: 原地旋转，对准目标 ---
         self.log.append("阶段一: 正在原地旋转对准目标...")
