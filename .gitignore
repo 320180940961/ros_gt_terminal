@@ -41,7 +41,9 @@ qtcreator-*
 /planning/cfg
 /planning/docs
 /planning/src
+
 /.vscode
+/scripts/paths_json
 
 *~
 
