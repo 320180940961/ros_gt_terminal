@@ -451,7 +451,7 @@ class BasePlateCommand:
     """负责向机器人底盘发送具体运动指令的工具类。"""
 
     def __init__(self, log_container=None):
-        self.pub = rospy.Publisher("/GT_control", GT_control, queue_size=10)
+        self.pub = rospy.Publisher("/GT_Control", GT_control, queue_size=10)
         self.log_container = log_container if log_container is not None else []
 
     def send_move_command(self, linear_velocity, turn_cmd):
