@@ -68,13 +68,13 @@ class Naver(Thread):
         self.commander = BasePlateCommand(log_container=self.log)
 
         # --- 可调校的闭环控制参数 ---
-        self.arrival_threshold = 0.2      # 到达阈值（米）, 可适当放宽
+        self.arrival_threshold = 200      # 到达阈值（mm）, 可适当放宽
         self.turn_arrival_threshold = 10.0 # 转向完成阈值（度），小于此值认为车头已对准
         # self.kp_turn = 1.5                # 转向比例增益
-        self.kp_turn = 0.5                # 转向比例增益
-        self.forward_speed = 200           # 前进速度 (0-100)
-        self.reverse_speed = 200           # 倒车速度 (0-100)
-        self.max_turn_cmd = 174           # 最大转向控制值
+        # self.kp_turn = 0.5                # 转向比例增益
+        self.forward_speed = 200           # 前进速度 mm/s
+        self.reverse_speed = 200           # 倒车速度 mm/s
+        # self.max_turn_cmd = 174           # 最大转向控制值
 
         # 定义航向角偏移量 (RTK天线方向 与 车辆前进方向 的夹角)
         self.YAW_OFFSET_DEG = 90.0
@@ -204,19 +204,22 @@ class Naver(Thread):
             # turn_cmd = np.clip(angular_velocity_cmd * 200, -self.max_turn_cmd, self.max_turn_cmd)
             #  turn_cmd = np.clip(angular_velocity_cmd * 10, -self.max_turn_cmd, self.max_turn_cmd) 
             # 1 .to +- pi
-            turn_cmd = np.clip(angular_velocity_cmd , -math.pi*0.95, math.pi*0.95) * 1000
+            # turn_cmd = np.clip(angular_velocity_cmd , -math.pi*0.95, math.pi*0.95) * 1000
 
             # 2. Minimum rotate speed 100/1000 rad/s
-            if turn_cmd >0:
-                turn_cmd = np.clip(angular_velocity_cmd, 100, self.max_turn_cmd)
+            if yaw_error_rad >0:
+                # turn_cmd = np.clip(angular_velocity_cmd, 100, self.max_turn_cmd)
+                turn_cmd = np.clip(yaw_error_rad, math.pi*0.5, math.pi*0.95)
             else:
-                turn_cmd = np.clip(angular_velocity_cmd, -self.max_turn_cmd, -100 )
+                turn_cmd = np.clip(yaw_error_rad, -math.pi*0.95, -math.pi*0.5)
+                
+                # turn_cmd = np.clip(angular_velocity_cmd, -self.max_turn_cmd, -100 )
 
 
             self.log.append(f"yaw_error_deg：{yaw_error_deg}")
             self.log.append(f"reverse_motion：{reverse_motion}")
             
-            self.commander.send_move_command(0, -turn_cmd)
+            self.commander.send_move_command(0, turn_cmd * 1000)
             control_rate.sleep()
         # debug
         # rospy.sleep(2)
@@ -249,14 +252,11 @@ class Naver(Thread):
                     stuck_warning_issued = True # 只警告一次
 
             if distance < self.arrival_threshold:
-                self.log.append(f"距离目标点({distance:.2f}m)小于阈值，认为到达。")
+                self.log.append(f"距离目标点({distance:.2f} mm)小于阈值，认为到达。")
                 self.commander.send_stop_command()
                 return True
 
-            yaw_error_rad, _ = self.compute_heading_error(current_pos, target_pos)
-            angular_velocity_cmd = self.kp_turn * yaw_error_rad
-            #
-            # angular_velocity_cmd is rad, turn_cmd is rad with 0.001 rad /s
+
             
 
             # self.commander.send_move_command(linear_velocity, turn_cmd)
@@ -414,7 +414,7 @@ class Naver(Thread):
 
         a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return R * c
+        return R * c * 1000
 
     def save_points(self):
         if not self.modified:
