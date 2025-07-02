@@ -200,7 +200,7 @@ class Naver(Thread):
                 rospy.sleep(0.5)  # 短暂暂停，确保车辆稳定
                 break
 
-            angular_velocity_cmd = self.kp_turn * yaw_error_rad
+            # angular_velocity_cmd = self.kp_turn * yaw_error_rad
             # turn_cmd = np.clip(angular_velocity_cmd * 200, -self.max_turn_cmd, self.max_turn_cmd)
             #  turn_cmd = np.clip(angular_velocity_cmd * 10, -self.max_turn_cmd, self.max_turn_cmd) 
             # 1 .to +- pi
