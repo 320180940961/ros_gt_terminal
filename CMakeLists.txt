@@ -108,7 +108,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
  LIBRARIES ros_gt_terminal
- CATKIN_DEPENDS message_generation message_runtime roscpp roslib rospy std_msgs ros_gt_msg ros_gt_desk
+ CATKIN_DEPENDS message_generation message_runtime roscpp roslib rospy std_msgs ros_ht_msg ros_gt_desk
  DEPENDS system_lib
 )
 

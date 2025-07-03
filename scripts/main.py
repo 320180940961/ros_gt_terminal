@@ -16,9 +16,11 @@ JUMP_TAB = {
     "ADD": ["ADD", "INSERT", "DELETE", "IDLE"],
     "INSERT": ["INSERT", "ADD", "DELETE", "IDLE"],
     "DELETE": ["DELETE", "ADD", "INSERT", "IDLE"],
-    "NAV": ["NAV", "MVTO", "RECORD", "IDLE"],
-    "MVTO": ["NAV", "MVTO", "NAV", "IDLE"],
+    "NAV": ["NAV", "MVTO", "RECORD", "IDLE", "PAUSE"], # 【新增】: "PAUSE"
+    "MVTO": ["NAV", "MVTO", "NAV", "IDLE", "PAUSE"], # 【新增】: "PAUSE"
     "IDLE": ["RECORD", "NAV"],
+    "PAUSE": ["RESUME", "IDLE", "NAV", "MVTO"], # 【新增】: PAUSE状态下可恢复或中止
+    "RESUME": ["PAUSE", "NAV", "MVTO", "RECORD", "IDLE"], # 【新增】: RESUME后状态会变回NAV，但为了逻辑完整性也加上
 }
 
 CMD_TIPS = {
@@ -29,6 +31,8 @@ CMD_TIPS = {
     "NAV": "listname (or -listname for reverse)",
     "MVTO": "at_point:int",
     "IDLE": "",
+    "PAUSE": "Pause the current navigation task", # 【新增】: 为新命令添加界面提示
+    "RESUME": "Resume the paused navigation task", # 【新增】: 为新命令添加界面提示
 }
 
 MAX_CMD_ROWS = 25
@@ -133,8 +137,8 @@ def main_loop(win, height, width):
 
     last_log_index = 0
     redraw_flag = True
-    history_cmds = []
-    history_idx = -1
+    # history_cmds = []
+    # history_idx = -1
 
     while not exit_flag:
         # --- 数据更新 ---
@@ -168,6 +172,11 @@ def main_loop(win, height, width):
             win.move(y_info, 0)
             win.clrtoeol()
             info_body = f"Current: {cur_stat}, Legal: {' '.join([f'<{k}>' for k in JUMP_TAB[cur_stat]])}"
+            
+            # 【新增】: 在界面状态栏增加 [PAUSED] 状态显示
+            if nav_naver and nav_naver.is_paused:
+                info_body += " [PAUSED]"
+
             if nav_naver and nav_naver.status == NAV_STATUS_RUNNING:
                 status_line = ""
                 if nav_naver.current_position:
@@ -209,10 +218,10 @@ def main_loop(win, height, width):
             if not input_command:
                 continue
 
-            if len(history_cmds) > 30:
-                history_cmds.pop(0)
-            history_cmds.append(input_command)
-            history_idx = -1
+            # if len(history_cmds) > 30:
+            #     history_cmds.pop(0)
+            # history_cmds.append(input_command)
+            # history_idx = -1
 
             # cmds.append(f"{input_head}{input_command}")
             args = input_command.split()
@@ -249,6 +258,21 @@ def main_loop(win, height, width):
                 last_log_index = 0
                 cmds.extend(recorder_naver.log)
                 last_log_index = len(recorder_naver.log)
+
+            # 【新增】: 在命令处理部分增加 PAUSE 和 RESUME 的逻辑
+            elif chstat == "PAUSE":
+                if nav_naver and nav_naver.is_alive():
+                    nav_naver.pause_navigation()
+                    cur_stat = "PAUSE"
+                else:
+                    warn = "No active navigation task to pause."
+
+            elif chstat == "RESUME":
+                if nav_naver and nav_naver.is_alive():
+                    nav_naver.resume_navigation()
+                    cur_stat = "NAV" # 恢复后状态回到NAV
+                else:
+                    warn = "No paused navigation task to resume."
 
             elif chstat in ("ADD", "INSERT", "DELETE"):
                 if not recorder_naver:
@@ -323,16 +347,16 @@ def main_loop(win, height, width):
         elif ch in (curses.KEY_BACKSPACE, 127):
             raw_input = raw_input[:-1]
             redraw_flag = True
-        elif ch in (curses.KEY_UP, 259):
-            raw_input = history_cmds[history_idx]
-            if abs(history_idx) + 1 < len(history_cmds):
-                history_idx -= 1
-            redraw_flag = True
-        elif ch  == curses.KEY_DOWN:
-            raw_input = history_cmds[history_idx]
-            if abs(history_idx) - 1 < len(history_cmds):
-                history_idx += 1
-            redraw_flag = True
+        # elif ch in (curses.KEY_UP, 259):
+        #     raw_input = history_cmds[history_idx]
+        #     if abs(history_idx) + 1 < len(history_cmds):
+        #         history_idx -= 1
+        #     redraw_flag = True
+        # elif ch  == curses.KEY_DOWN:
+        #     raw_input = history_cmds[history_idx]
+        #     if abs(history_idx) - 1 < len(history_cmds):
+        #         history_idx += 1
+        #     redraw_flag = True
         elif ch <= 255 and chr(ch).isprintable():
             raw_input += chr(ch)
             redraw_flag = True

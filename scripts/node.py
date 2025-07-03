@@ -13,7 +13,7 @@ from threading import Event, Thread
 import numpy as np
 import rospy
 from nav_msgs.msg import Odometry
-from ros_gt_msg.msg import GT_control
+from ros_ht_msg.msg import ht_control
 from sensor_msgs.msg import NavSatFix
 from tf.transformations import euler_from_quaternion
 
@@ -54,6 +54,10 @@ class Naver(Thread):
         self.current_target = None
         self.current_target_index = None
 
+        # 【新增】: 暂停/恢复功能所需属性
+        self.pause_event = Event()  # False为运行, True为暂停
+        self.is_paused = False
+
         # 路径点管理
         self.points = copy.deepcopy(self.recorder.load())
         self.modified = False
@@ -69,8 +73,8 @@ class Naver(Thread):
 
         # --- 可调校的闭环控制参数 ---
         self.arrival_threshold = 200      # 到达阈值（mm）, 可适当放宽
-        self.turn_arrival_threshold = 10.0 # 转向完成阈值（度），小于此值认为车头已对准
-        # self.kp_turn = 1.5                # 转向比例增益
+        self.turn_arrival_threshold = 5.0 # 转向完成阈值（度），小于此值认为车头已对准
+        self.kp_turn = 1.5                # 转向比例增益
         # self.kp_turn = 0.5                # 转向比例增益
         self.forward_speed = 200           # 前进速度 mm/s
         self.reverse_speed = 200           # 倒车速度 mm/s
@@ -155,6 +159,19 @@ class Naver(Thread):
         self.stop_robot()
         self.cleanup_subscribers()
 
+    # 【新增】: 新增用于检查和处理暂停状态的辅助函数 _wait_if_paused
+    def _wait_if_paused(self):
+        """检查并处理暂停事件。"""
+        if self.pause_event.is_set():
+            self.commander.send_stop_command()
+            self.log.append("导航已暂停。")
+            while self.pause_event.is_set():
+                rospy.sleep(0.2)
+                if self.stop_event.is_set():
+                    return False  # 如果在暂停时收到停止信号，则退出
+            self.log.append("导航已恢复。")
+        return True
+
     def go_to_point_turn_then_drive(self, start_pos, target_pos, target_info):
         """采用“先原地转向，再直线行驶”的策略导航到目标点。"""
         self.log.append(f"开始导航至目标点 {target_info}")
@@ -162,7 +179,7 @@ class Naver(Thread):
         # self.log.append(f"Lat {target_pos['lat']} Lng{target_pos['lng']}")
         # self.log.append("*"*10)
         # control_rate = rospy.Rate(10)
-        control_rate = rospy.Rate(5)
+        control_rate = rospy.Rate(2)
 
         # --- 阶段一: 原地旋转，对准目标 ---
         self.log.append("阶段一: 正在原地旋转对准目标...")
@@ -172,6 +189,10 @@ class Naver(Thread):
         stuck_warning_issued = False
 
         while not rospy.is_shutdown():
+            # 【新增】: 在核心导航循环中调用暂停检查
+            if not self._wait_if_paused(): 
+                return False
+            
             if self.stop_event.is_set():
                 return False
 
@@ -219,7 +240,8 @@ class Naver(Thread):
             self.log.append(f"yaw_error_deg：{yaw_error_deg}")
             self.log.append(f"reverse_motion：{reverse_motion}")
             
-            self.commander.send_move_command(0, turn_cmd * 1000)
+            # Trasn GEO coord to ROS coord
+            self.commander.send_move_command(0, -turn_cmd * 200)
             control_rate.sleep()
         # debug
         # rospy.sleep(2)
@@ -236,13 +258,17 @@ class Naver(Thread):
         linear_velocity = -self.reverse_speed if reverse_motion else self.forward_speed
 
         while not rospy.is_shutdown():
+            # 【新增】: 在核心导航循环中调用暂停检查
+            if not self._wait_if_paused(): 
+                return False
+            
             if self.stop_event.is_set():
                 return False
 
             current_pos = self.get_current_position() or current_pos
             distance = self._calc_distance(current_pos['lat'], current_pos['lng'], target_pos['lat'], target_pos['lng'])
 
-            self.log.append(f"行驶中... 目标点: {target_info}, 距离目标: {distance:.2f}m 方向：{reverse_motion}")
+            self.log.append(f"行驶中... 目标点: {target_info}, 距离目标: {distance:.2f}mm 方向：{reverse_motion}")
 
             # 检查是否卡住
             if not stuck_warning_issued and (rospy.get_time() - drive_start_time > self.stuck_timeout):
@@ -273,6 +299,7 @@ class Naver(Thread):
         # ROS角度(弧度) = -地理方位角(弧度) + π/2
         self.log.append(f"Cur ROS: {raw_yaw_deg} ")
         travel_yaw_deg = -raw_yaw_deg + 90
+        # travel_yaw_deg=raw_yaw_deg+90
         self.log.append(f"Cur GEO: {travel_yaw_deg} ")
 
         lat1_rad, lon1_rad, lat2_rad, lon2_rad, current_travel_yaw_rad = map(
@@ -306,6 +333,19 @@ class Naver(Thread):
     def stop_robot(self):
         if self.commander:
             self.commander.send_stop_command()
+
+    # 【新增】: 在 Naver 类中新增控制暂停/恢复的公共方法
+    def pause_navigation(self):
+        """暂停导航。"""
+        if self.status == NAV_STATUS_RUNNING and not self.is_paused:
+            self.is_paused = True
+            self.pause_event.set() # 设置事件，通知循环暂停
+
+    def resume_navigation(self):
+        """恢复导航。"""
+        if self.status == NAV_STATUS_RUNNING and self.is_paused:
+            self.is_paused = False
+            self.pause_event.clear() # 清除事件，让循环继续
 
     def navsat_fix_callback(self, msg):
         self.latest_navsat_fix = msg
@@ -451,13 +491,13 @@ class BasePlateCommand:
     """负责向机器人底盘发送具体运动指令的工具类。"""
 
     def __init__(self, log_container=None):
-        self.pub = rospy.Publisher("/GT_Control", GT_control, queue_size=10)
+        self.pub = rospy.Publisher("/HT_Control", ht_control, queue_size=10)
         self.log_container = log_container if log_container is not None else []
 
     def send_move_command(self, linear_velocity, turn_cmd):
         """发送单条移动指令。"""
         # Mode 1 轮速转速模式 2 线速度模式
-        control_msg = GT_control(
+        control_msg = ht_control(
             mode=2,
             x=int(linear_velocity),
             y=int(turn_cmd),
@@ -469,7 +509,7 @@ class BasePlateCommand:
     
     def send_stop_command(self):
         """发送单条停止指令。"""
-        control_msg = GT_control(mode=1, x=0, y=0, stop=1)
+        control_msg = ht_control(mode=1, x=0, y=0, stop=1)
         self.pub.publish(control_msg)
         self.log_container.append("车辆停止指令已发送")
 
