@@ -6,5 +6,5 @@ CLI tools for GT-02:
 
 ![Record and nav example](misc/terminal.gif)
 
-Other former contributors [@艾雨翾](https://github.com/aiyux), [@郭肖阳](https://github.com/320180940961), [@慧星博](https://github.com/assasin831). The old version are intrisic and massive, so I dont pack them up.
+Other former contributors [@艾雨翾](https://github.com/aiyux), [@郭肖阳](https://github.com/320180940961), [@惠星博](https://github.com/assasin831). The old version are intrisic and massive, so I dont pack them up.
 
