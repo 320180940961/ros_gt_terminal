@@ -91,21 +91,20 @@ class Naver(Thread):
         self.arrival_threshold = 200      # 到达阈值（mm）, 可适当放宽
         self.turn_arrival_threshold = 5.0 # 转向完成阈值（度），小于此值认为车头已对准
         self.kp_turn = 1.5                # 转向比例增益
-        # self.kp_turn = 0.5                # 转向比例增益
-        self.forward_speed = 100           # 前进速度 mm/s
-        self.reverse_speed = 100           # 倒车速度 mm/s
-        # self.max_turn_cmd = 174           # 最大转向控制值
+        self.forward_speed = 200           # 前进速度 mm/s
+        self.reverse_speed = 200           # 倒车速度 mm/s
 
         # 直行时，每隔多少秒检查一次航向
         self.recalibration_interval = 3.0
 
         # 定义航向角偏移量 (RTK天线方向 与 车辆前进方向 的夹角)
         self.YAW_OFFSET_DEG = 90.0
+        # self.YAW_OFFSET_DEG = 0.0
 
-        # 用于检测机器人是否卡住的参数
+        # 【新增】: 用于检测机器人是否卡住的参数
         self.stuck_timeout = 3.0  # 几秒后开始检测 (秒)
         self.stuck_angle_threshold = 1.0  # 转向时，角度变化小于此值(度)则认为卡住
-        self.stuck_distance_threshold = 100.0 # 直行时，移动距离小于此值(毫米)则认为卡住
+        self.stuck_distance_threshold = 0.1 # 直行时，移动距离小于此值(米)则认为卡住
 
         self.log.append(f"Naver in '{mode}' mode initialized.")
 
@@ -168,7 +167,7 @@ class Naver(Thread):
         # 3. 控制升降台
         if 'lift_height' in target_point:
             # 假设模式1是移动到指定高度
-            lift_msg = Lift_control(mode=1, data=target_point['lift_height']//10)
+            lift_msg = Lift_control(mode=1, data=target_point['lift_height'])
             self.lift_pub.publish(lift_msg)
 
     def run_navigation_task(self):
@@ -233,12 +232,11 @@ class Naver(Thread):
             current_pos = self.get_current_position() or target
             self.log.append(f"确认到达 {idx_info} 号点。")
 
-            # 到达后，校准车头朝向
+            # 【调用新增功能】: 到达后，校准车头朝向
             self.align_heading_to_waypoint_yaw(target, idx_info)
             if self.stop_event.is_set():
                 self.log.append("姿态校准时被用户中断")
                 break
-
 
         self.status = NAV_STATUS_DONE
         if not self.stop_event.is_set():
@@ -249,7 +247,7 @@ class Naver(Thread):
         self.stop_robot()
         self.cleanup_subscribers()
 
-    # 用于检查和处理暂停状态的辅助函数 _wait_if_paused
+    # 【新增】: 新增用于检查和处理暂停状态的辅助函数 _wait_if_paused
     def _wait_if_paused(self):
         """检查并处理暂停事件。"""
         if self.pause_event.is_set():
@@ -361,12 +359,19 @@ class Naver(Thread):
                 self.commander.send_stop_command()
                 return # 成功完成转向
 
+            # angular_velocity_cmd = self.kp_turn * yaw_error_rad
+            # turn_cmd = np.clip(angular_velocity_cmd * 200, -self.max_turn_cmd, self.max_turn_cmd)
+            #  turn_cmd = np.clip(angular_velocity_cmd * 10, -self.max_turn_cmd, self.max_turn_cmd) 
+            # 1 .to +- pi
+            # turn_cmd = np.clip(angular_velocity_cmd , -math.pi*0.95, math.pi*0.95) * 1000
 
-            # Minimum rotate speed 100/1000 rad/s
+            # 2. Minimum rotate speed 100/1000 rad/s
             if yaw_error_rad >0:
                 turn_cmd = np.clip(yaw_error_rad, math.pi*0.5, math.pi*0.95)
             else:
                 turn_cmd = np.clip(yaw_error_rad, -math.pi*0.95, -math.pi*0.5)
+                
+
 
             self.log.append(f"yaw_error_deg：{yaw_error_deg}")
             
@@ -440,11 +445,20 @@ class Naver(Thread):
                 last_recalibration_time = rospy.get_time() # 重置计时器
 
             if distance < self.arrival_threshold:
-                # self.align_heading_to_target(start_pos, target_pos, target_info)
                 self.log.append(f"距离目标点({distance:.2f} mm)小于阈值，认为到达。")
                 self.commander.send_stop_command()
                 return True
 
+            # 直行中的微小方向修正
+            # yaw_error_rad, _ = self.compute_heading_error(current_pos, target_pos)
+            # angular_velocity_cmd = self.kp_turn * yaw_error_rad
+            # turn_cmd = np.clip(angular_velocity_cmd * 100, -self.max_turn_cmd, self.max_turn_cmd)
+            
+            # self.commander.send_move_command(linear_velocity, turn_cmd)
+            # control_rate.sleep()
+            
+
+            # self.commander.send_move_command(linear_velocity, turn_cmd)
             self.commander.send_move_command(linear_velocity, 0)
             control_rate.sleep()
         return False
@@ -478,12 +492,10 @@ class Naver(Thread):
         yaw_error = (yaw_error + math.pi) % (2 * math.pi) - math.pi
 
         reverse_motion = abs(yaw_error) > (math.pi / 2)
-        # reverse_motion = abs(yaw_error) > (math.pi)
         if reverse_motion:
             yaw_error = yaw_error - math.copysign(math.pi, yaw_error)
 
         return yaw_error, reverse_motion
-        # return yaw_error, reverse_motion
 
     def stop_robot(self):
         if self.commander:
@@ -594,7 +606,7 @@ class Naver(Thread):
         if self.commander:
             self.commander.cleanup()
 
-        #  在任务结束时，将内存中的全部日志保存到文件
+        # 【新增功能开始】: 在任务结束时，将内存中的全部日志保存到文件
         if self.recorder and self.recorder.listname and self.log:
             try:
                 # 1. 定义日志文件存放目录和文件名
@@ -617,8 +629,9 @@ class Naver(Thread):
             except Exception as e:
                 # 在屏幕上提示错误
                 self.log.append(f"[ERROR] 保存日志摘要失败: {e}")
+        # 【新增功能结束】
 
-        # 关闭实时文件记录器
+        # 关闭实时文件记录器 (这是我们之前添加的功能，保持不变)
         if self.file_logger:
             self.log.append("文件记录器已关闭。")
             self.file_logger.close()

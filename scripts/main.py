@@ -137,6 +137,8 @@ def main_loop(win, height, width):
 
     last_log_index = 0
     redraw_flag = True
+    # history_cmds = []
+    # history_idx = -1
 
     while not exit_flag:
         # --- 数据更新 ---
@@ -216,6 +218,12 @@ def main_loop(win, height, width):
             if not input_command:
                 continue
 
+            # if len(history_cmds) > 30:
+            #     history_cmds.pop(0)
+            # history_cmds.append(input_command)
+            # history_idx = -1
+
+            # cmds.append(f"{input_head}{input_command}")
             args = input_command.split()
             chstat, params = args[0].upper(), args[1:]
             redraw_flag = True
@@ -339,6 +347,16 @@ def main_loop(win, height, width):
         elif ch in (curses.KEY_BACKSPACE, 127):
             raw_input = raw_input[:-1]
             redraw_flag = True
+        # elif ch in (curses.KEY_UP, 259):
+        #     raw_input = history_cmds[history_idx]
+        #     if abs(history_idx) + 1 < len(history_cmds):
+        #         history_idx -= 1
+        #     redraw_flag = True
+        # elif ch  == curses.KEY_DOWN:
+        #     raw_input = history_cmds[history_idx]
+        #     if abs(history_idx) - 1 < len(history_cmds):
+        #         history_idx += 1
+        #     redraw_flag = True
         elif ch <= 255 and chr(ch).isprintable():
             raw_input += chr(ch)
             redraw_flag = True
